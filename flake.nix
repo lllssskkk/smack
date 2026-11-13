@@ -30,15 +30,24 @@
 
         python = pkgs.python3.withPackages (ps: [ ps.pyyaml ]);
 
+        # A compiler for smack to call. It keeps the settings of the shell smack runs in,
+        # such as include paths, but turns off Nix's hardening flags: smack compiles to
+        # LLVM IR for analysis, not to run, and at -O0 _FORTIFY_SOURCE only causes warnings.
+        # It execs the Nix compiler wrapper by its own name, so the wrapper still sees
+        # itself as clang / clang++.
+        compiler =
+          name:
+          pkgs.writeShellScript "${name}-14" ''
+            unset ''${!NIX_HARDENING_ENABLE@}
+            exec ${llvm.clang}/bin/${name} "$@"
+          '';
+
         # The smack script calls its LLVM tools with a version suffix (clang-14,
-        # llvm-link-14, ...). The compilers are small exec scripts rather than
-        # symlinks, so the Nix compiler wrapper still sees itself as clang / clang++.
+        # llvm-link-14, ...)
         llvmTools = pkgs.runCommand "smack-llvm14-tools" { } ''
           mkdir -p $out/bin
-          for t in clang clang++; do
-            printf '#!${pkgs.runtimeShell}\nexec ${llvm.clang}/bin/%s "$@"\n' "$t" > $out/bin/$t-14
-            chmod +x $out/bin/$t-14
-          done
+          ln -s ${compiler "clang"} $out/bin/clang-14
+          ln -s ${compiler "clang++"} $out/bin/clang++-14
           for t in llvm-as llvm-dis llvm-link; do
             ln -s ${llvm.llvm}/bin/$t $out/bin/$t-14
           done
